@@ -4,6 +4,11 @@ Perform Tumor/normal classification and tumor fraction prediction for multiple c
 # Usage
 `python3 <script> <config_path>`
 
+# Output
+- *pred.tsv: predictions score for each sample
+- *roc.tsv: ROC curve - contains cutoff
+- *r2.tsv: R2 for tumor fractions (MAF as truth)
+
 ## Configs
 A config file is required to run these scripts. Example config:
 
