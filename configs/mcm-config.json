@@ -1,0 +1,17 @@
+{
+    "feature_path": "data/methylome_cohort_CV_scores.2020-06-21.tsv",
+    "count_path": "data/mcm_mcm_param.mol_counts.summary.tsv",
+    "output_prefix": "test/mcm-binary",
+    "cancer_type": "crc",
+    "bad_cohorts": ["L2AV-F", "L2AV"],
+    "bad_batches": ["LTO_232"],
+    "total_iterations": 5,
+    "iteration_start_seed": 0,
+    "binary": true,
+    "do_clean_up": true,
+    "do_transform": true,
+    "scaler_str": "preprocessing.RobustScaler()",
+    "tumor_normal_ratio_min": 1.5,
+    "num_digits": 4,
+    "regressor_str": "linear_model.LogisticRegression()"
+}
