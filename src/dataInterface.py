@@ -75,3 +75,23 @@ def dump_prediction_result(output_prefix, final_roc, final_r2, final_pred, final
     json.dump(final_metrics, outfile)
     outfile.close()
 
+
+def gen_simulated_data(indata, region_list, params, cancer_type):
+    # generate in silico titration data to 0.05% MAF
+    # for now not using params
+    target_maf = 5e-4
+    sample_seed = 100
+    dt_tumor = indata[(indata.cancer_type==cancer_type) & (~indata.maf.isnull())]
+    num_tumors = dt_tumor.shape[0]
+    dt_normal = indata[indata.cancer_type!=cancer_type].sample(n=num_tumors, random_state=sample_seed)
+    coef_tumor = target_maf / dt_tumor.maf
+    coef_normal = 1 - coef_tumor
+    dt_simu = (dt_tumor[region_list] * coef_tumor) + (dt_normal[region_list] * coef_normal)
+    dt_simu["ctrl_sum"] = (dt_tumor["ctrl_sum"] * coef_tumor) + (dt_normal["ctrl_sum"] * coef_normal)
+    dt_simu["sample_id"] = dt_tumor["sample_id"] + "_simu"
+    dt_simu["cancer_type"] = cancer_type
+    dt_simu["maf"] = target_maf
+    for k in ["somatic_call", "cohort", "stage"]:
+        dt_simu[k] = dt_tumor[k]
+
+    return dt_simu

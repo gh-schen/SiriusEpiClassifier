@@ -8,7 +8,7 @@ from Classifier import regData
 from configData import configData
 from subprocess import check_call
 
-from dataInterface import read_features, load_molcounts_data, set_roc, convert_roc_map_to_dataframe
+from dataInterface import read_features, load_molcounts_data, set_roc, convert_roc_map_to_dataframe, gen_simulated_data
 
 """
 Gateway of running simulation & prediction & modeling
@@ -25,6 +25,9 @@ def main():
     logging.info("Read %d samples with features.", features.shape[0])
     mcm_data, raw_regions = load_molcounts_data(config_data.count_path, features, config_data.cancer_type, config_data.maf_key)
     logging.info("Loaded %d %s/normal data in %d regions.", mcm_data.shape[0], config_data.cancer_type, len(raw_regions))
+
+    if hasattr(config_data.in_silico_titration):
+        simu_data = gen_simulated_data(mcm_data, raw_regions, config_data.in_silico_titration, config_data.cancer_type)
 
     logging.info("Start CV.")
     roc_map = {}
