@@ -287,6 +287,10 @@ class regData():
             self.pred_map[dname].cancer_status = cstatus
 
 
+    def set_simu_data(self, count_data, input_regions):
+        # add simulated data to training only
+
+
     def _run_binary_training(self, srm, iter_index):
         if len(self.follow_train_x) > 0:
             x_train = concatenate((self.init_train_x[iter_index], self.follow_train_x[iter_index]))
