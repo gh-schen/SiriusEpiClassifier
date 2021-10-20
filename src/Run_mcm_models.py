@@ -8,7 +8,7 @@ from Classifier import regData
 from configData import configData
 from subprocess import check_call
 
-from dataInterface import read_features, load_molcounts_data, set_roc, convert_roc_map_to_dataframe
+from dataInterface import read_features, load_molcounts_data, set_roc, convert_roc_map_to_dataframe, gen_simulated_data
 
 """
 Gateway of running simulation & prediction & modeling
@@ -26,6 +26,9 @@ def main():
     mcm_data, raw_regions = load_molcounts_data(config_data.count_path, features, config_data.cancer_type, config_data.maf_key)
     logging.info("Loaded %d %s/normal data in %d regions.", mcm_data.shape[0], config_data.cancer_type, len(raw_regions))
 
+    if hasattr(config_data.in_silico_titration):
+        simu_data = gen_simulated_data(mcm_data, raw_regions, config_data.in_silico_titration, config_data.cancer_type)
+
     logging.info("Start CV.")
     roc_map = {}
     final_r2 = None
@@ -33,7 +36,7 @@ def main():
     final_metrics = []
     for cv_idx in range(config_data.total_iterations):
         shuffle_seed = config_data.iteration_start_seed + cv_idx
-        r2_result, roc_result, pred_dataframe, out_metrics = run_single_iteration(mcm_data, raw_regions, config_data, shuffle_seed)
+        r2_result, roc_result, pred_dataframe, out_metrics = run_single_iteration(mcm_data, raw_regions, config_data, shuffle_seed, simu_data)
         set_roc(roc_map, roc_result, num_digits=config_data.num_digits-1)
         if cv_idx == 0:
             final_r2 = r2_result
@@ -67,9 +70,12 @@ def main():
     check_call(cmd, shell=True)
 
 
-def run_single_iteration(mcm_data, raw_regions, config_data, cv_seed):
+def run_single_iteration(mcm_data, raw_regions, config_data, cv_seed, simu_data=None):
     reg_data = regData(config_data)
     reg_data.set_cv_data(mcm_data, raw_regions, cv_seed)
+    if simu_data is not None:
+        reg_data.set_simu_data(simu_data, raw_regions)
+
     logging.info("Set %d fold CV data with %d in each partition.", reg_data.num_cv_, reg_data.test_x[0].shape[0])
 
     reg_data.run_cv_maf_predict()
