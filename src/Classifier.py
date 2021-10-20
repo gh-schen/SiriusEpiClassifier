@@ -1,12 +1,10 @@
 from mafUtility import singleRegModel, predOutcome
 from pandas import DataFrame
 from statistics import median, mean
-from numpy import log, concatenate
+from numpy import log, concatenate, empty
 from sklearn import linear_model, preprocessing, metrics, decomposition
 from scipy.special import logit, expit
 from copy import deepcopy
-
-import logging
 
 
 class regData():
@@ -32,19 +30,19 @@ class regData():
         self.follow_iter_ = 1 # number of iterations for training data points with no MAF
         self.total_explained_variance_ = 0.9 # total variance explained
         self.num_components_list = [0] * self.num_cv_ # finally how many components were used
-        # data
-        self.init_train_x = [] # partitions of training x
-        self.init_indexes = []
-        self.follow_train_x = []
-        self.follow_train_indexes = []
-        self.init_train_y = []
-        self.follow_train_labels = []
-        self.test_x = []
-        self.test_indexes = []
-        self.test_y = []
-        self.follow_test_x = []
-        self.follow_test_indexes = []
-        # data params
+        # data and result
+        self.count_data = None # adjusted count data
+        self.region_names = [] # names of regions - column names of raw input data
+        self.sample_names = []
+        self.cancer_labels = []
+        self.true_tumor_fracs = []
+        self.preds = DataFrame(data=empty(len(self.sample_names), self.num_cv_))
+        self.init_train_indexes = [[] for i in range(self.num_cv_)] # partitions of training indexes
+        self.follow_train_indexes = [[] for i in range(self.num_cv_)]
+        self.init_test_indexes = [[] for i in range(self.num_cv_)]
+        self.follow_test_indexes = [[] for i in range(self.num_cv_)]
+
+        # data processing params
         self.do_clean_up_ = params.do_clean_up
         self.do_transform_ = params.do_transform
         self.min_norm_count_in_max_ = 2e-06
@@ -58,10 +56,8 @@ class regData():
         self.is_binary_classifier_ = params.binary
         self.regressor_ = eval(params.regressor_str)
         self.trained_model = None
-        # result
-        self.pred_map = {}
-        self.roc_dataframe = None
         # result metrics
+        self.roc_dataframe = None
         self.output_metrics = {"num_components": [], "num_features_after_clean_up": None}
         
 
@@ -232,7 +228,16 @@ class regData():
         else:
             regions = input_regions
 
-        # then set training
+        # set basic data
+        new_count = (indata[regions] + self.x_offset_).div(indata[self.ctrl_key_].values, 0)
+        self.count_data = log(new_count.astype('float'))
+        self.region_names = regions
+        self.sample_names = indata.index.to_list()
+        self.cancer_labels = indata[self.label_key_].replace(
+                        [self.cancer_free_str_, self.cancer_type_str_], [0, 1]).to_list()
+        self.tumor_fracs = indata[self.maf_key_].fillna(self.min_maf_).to_list()
+
+        # partition T/N, init and follow up
         if self.somatic_cleanup:
             init_cancer_index = (indata[self.label_key_] == self.cancer_type_str_) & (indata["somatic_call"] == 1)
             init_normal_index = (indata[self.label_key_] == self.cancer_free_str_) & (indata["somatic_call"] == 0)
@@ -244,29 +249,30 @@ class regData():
         init_normal = indata[init_normal_index]
         follows = indata[~(init_cancer_index | init_normal_index)]
 
-        self._set_split_data(init_cancer, regions, self.num_cv_, maf_exist=True)
-        self._set_split_data(init_normal, regions, self.num_cv_, maf_exist=True)
-        if follows.shape[0] > 0:
-            self._set_split_data(follows, regions, self.num_cv_, maf_exist=False)
-        else:
-            logging.warning("All cancer samples have MAF - this is unusual.")
+        # add index to partitions
+        for d_idx, dt in zip(list(range(3)), [init_cancer, init_normal, follows]):
+            pstart = 0
+            pindex = 0
+            pnum = round(dt.shape[0] / self.num_cv_) + 1
+            while(pstart < self.count_data.shape[0]):
+                pstop = min(pstart + pnum, dt.shape[0])
+                test_idx = list(range(pstart, pstop))
+                all_idx = list(range(dt.shape[0]))
+                train_idx = list(set(all_idx) ^ (set(test_idx)))
+                
+                if d_idx == 2:
+                    self.follow_train_indexes += train_idx
+                    self.follow_test_indexes += test_idx
+                else:
+                    self.init_train_indexes[pindex] += train_idx
+                    self.init_test_indexes += test_idx
 
+                pindex += 1
+                pstart = pstop
+
+        # scaling
         if self.scaler_ is not None:
             self._normalize_input_data()
-
-        # set up samples
-        for ii in range(self.num_cv_):
-            tlist = self.test_indexes[ii]
-            for j in range(len(tlist)):
-                po = predOutcome()
-                po.true_y = self.test_y[ii][j]
-                self.pred_map[tlist[j]] = po
-            if ii < len(self.follow_test_indexes):
-                tlist = self.follow_test_indexes[ii]
-                for j in range(len(tlist)):
-                    po = predOutcome()
-                    po.true_y = None
-                    self.pred_map[tlist[j]] = po
 
         # transform features
         if self.do_transform_:

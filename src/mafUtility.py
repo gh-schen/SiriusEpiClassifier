@@ -50,14 +50,3 @@ class singleRegModel():
 
     def predict_quant(self, input_x):
         return self.mmodel.predict(input_x)
-
-    
-class predOutcome():
-    """
-    store output for prediction
-    """
-    def __init__(self):
-        self.true_y = None
-        self.test_y = None
-        self.train_ys = [] # with CV training can have multiple results
-        self.cancer_status = None # binary: 0 for normal and 1 for cance
