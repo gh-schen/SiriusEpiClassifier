@@ -49,6 +49,10 @@ class singleRegModel():
 
 
     def predict_quant(self, input_x):
+        #preds = matmul(input_x, transpose(self.mmodel.coef_)) + self.mmodel.intercept_
+        #print(preds, self.mmodel.predict(input_x))
+        #probs = preds[:,0]
+        #return probs
         return self.mmodel.predict(input_x)
 
     

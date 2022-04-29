@@ -1,7 +1,8 @@
+from math import isinf
 from mafUtility import singleRegModel, predOutcome
 from pandas import DataFrame
 from statistics import median, mean
-from numpy import log, concatenate
+from numpy import log, log10, concatenate
 from sklearn import linear_model, preprocessing, metrics, decomposition
 from scipy.special import logit, expit
 from copy import deepcopy
@@ -19,7 +20,7 @@ class regData():
         self.test_only = False
         # params
         self.min_maf_ = 1e-06
-        self.x_offset_ = 0.1
+        self.x_offset_ = 1e-06
         self.num_cv_ = 4
         self.cancer_type_str_ = params.cancer_type
         self.cancer_free_str_ = "cancer_free"
@@ -72,8 +73,8 @@ class regData():
                 return
             raise Exception("Empty input data in classifier.")
 
-        new_x = (rawdata[regions] + self.x_offset_).div(rawdata[self.ctrl_key_].values, axis=0)
-        new_x = log(new_x.astype('float'))
+        new_x = rawdata[regions].div(rawdata[self.ctrl_key_].values, axis=0)
+        new_x = log10(new_x.astype('float') + self.x_offset_)
         if self.is_binary_classifier_:
             new_y = rawdata[self.label_key_]
             new_y = new_y.replace(self.cancer_type_str_, 1)
@@ -455,7 +456,7 @@ class regData():
                 continue
             if v.test_y >= logit_cutoff:
                 num_pos += 1
-                if v.true_y is not None:
+                if v.true_y is not None and not isinf(v.true_y):
                     true_ys_logit.append(v.true_y)
                     test_ys_logit.append(v.test_y)
                     residuals_logit.append(v.test_y - v.true_y)

@@ -13,9 +13,11 @@ def read_features(feature_path, bad_cohorts, bad_batches):
     for r in raw_names:
         cohort_map[r] = r.split('_')[0]
         
+    print(f"original features for {features.shape[0]} samples.")
     features = features.replace({"cohort": cohort_map})
     features = features[~features.cohort.isin(bad_cohorts)]
     features = features[~features.batch.isin(bad_batches)]
+    print(f"keep features for {features.shape[0]} samples.")
     return features
 
 
