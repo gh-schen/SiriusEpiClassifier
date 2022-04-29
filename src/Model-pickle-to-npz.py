@@ -5,20 +5,20 @@ from numpy import savez_compressed, dot
 sys.path.append('/ghdevhome/home/schen/libs/SiriusEpiClassifier/src')
 
 
-def get_cutoff(roc_path, fpr_level):
+def get_cutoff(roc_path, spec_level):
     rdata = read_csv(roc_path, sep='\t', header=0)
-    rdata["abs_diff"] = abs(rdata["fpr"].astype('float') - fpr_level)
+    rdata["abs_diff"] = abs(rdata["specificity"].astype('float') - spec_level)
     rdata = rdata.sort_values(["abs_diff"])
-    thred = rdata.iloc[0]["tpr"]
-    if abs(thred - fpr_level) > 1e-2:
-        print(roc_path, fpr_level, thred)
+    thred = rdata.iloc[0]["cutoff"]
+    if abs(rdata.iloc[0]["specificity"] - spec_level) > 1e-2:
+        print(roc_path, spec_level, thred)
     return thred
 
 
-def merge_pickles(z_dict, model_name, region_ids, model_prefix, roc_path):
-    scaler_path = pickle_prefix + ".scaler.pkl"
-    reducer_path = pickle_prefix+ ".transformer.pkl"
-    predictor_path = pickle_prefix + ".predictor.pkl"
+def set_model_keys(z_dict, model_name, region_ids, model_prefix, roc_path):
+    scaler_path = model_prefix + ".scaler.pkl"
+    reducer_path = model_prefix+ ".transformer.pkl"
+    predictor_path = model_prefix + ".predictor.pkl"
     
     infile = open(scaler_path, 'rb')
     sc = pickle.load(infile)
@@ -37,11 +37,18 @@ def merge_pickles(z_dict, model_name, region_ids, model_prefix, roc_path):
     new_coefs = dot(preds.mmodel.coef_, rd.components_)
 
     z_dict[model_name + "_region_id"] = region_ids
+    z_dict[model_name + "_scale_offset"] = comb_scale
     z_dict[model_name + "_center_offset"] = comb_mean
-    z_dict[model_name + "_weight"] = new_coefs
-    z_dict[model_name + "_bias"] = preds.mmodel.intercept_
-    z_dict[model_name + "threshold"] = get_cutoff(roc_path)
-    z_dict[model_name + "_pseudocount"] = 0.1
+    z_dict[model_name + "_weight"] = new_coefs.ravel()
+    if model_name.endswith("lr"):
+        z_dict[model_name + "_bias"] = preds.mmodel.intercept_[0]
+    else:
+        z_dict[model_name + "_bias"] = preds.mmodel.intercept_
+    z_dict[model_name + "_threshold"] = get_cutoff(roc_path, 0.95)
+    z_dict[model_name + "_pseudocount"] = 1e-06
+
+    #for i in ["_bias", "_threshold", "_pseudocount"]:
+    #    print(z_dict[model_name + i])
 
 
 def main():
@@ -52,17 +59,17 @@ def main():
     mlist = model_data["model_name"].to_list()
     z_dict = {"model_list": mlist}
 
-    count_data = read_csv(model_data.iloc[0]["count_file"])
+    count_data = read_csv(model_data.iloc[0]["region_list_file"])
     region_ids = count_data["region_id"].to_list()
-    region_ids.remove("ctrl_sum")
 
     for idx, dr in model_data.iterrows():
         model_name = dr["model_name"]
         model_prefix = dr["prefix"]
         roc_path = dr["roc_path"]
+        #print(model_name, model_prefix, roc_path)
         set_model_keys(z_dict, model_name, region_ids, model_prefix, roc_path)
 
-    numpy.savez_compressed(outf, **z_dict)
+    savez_compressed(out_prefix, **z_dict)
 
 
 if __name__ == "__main__":
