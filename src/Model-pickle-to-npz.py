@@ -43,7 +43,7 @@ def set_model_keys(z_dict, model_name, region_ids, model_prefix, roc_path):
     if model_name.endswith("lr"): # update LR threshold to 0
         real_bias = preds.mmodel.intercept_[0]
         threshold = get_cutoff(roc_path, 0.98)
-        adjust_bias = real_bias + threshold
+        adjust_bias = real_bias - threshold
         z_dict[model_name + "_bias"] = adjust_bias
         #print(real_bias, adjust_bias)
         z_dict[model_name + "_threshold"] = 0
