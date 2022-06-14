@@ -40,11 +40,16 @@ def set_model_keys(z_dict, model_name, region_ids, model_prefix, roc_path):
     z_dict[model_name + "_scale_offset"] = comb_scale
     z_dict[model_name + "_center_offset"] = comb_mean
     z_dict[model_name + "_weight"] = new_coefs.ravel()
-    if model_name.endswith("lr"):
-        z_dict[model_name + "_bias"] = preds.mmodel.intercept_[0]
+    if model_name.endswith("lr"): # update LR threshold to 0
+        real_bias = preds.mmodel.intercept_[0]
+        threshold = get_cutoff(roc_path, 0.98)
+        adjust_bias = real_bias - threshold
+        z_dict[model_name + "_bias"] = adjust_bias
+        #print(real_bias, adjust_bias)
+        z_dict[model_name + "_threshold"] = 0
     else:
         z_dict[model_name + "_bias"] = preds.mmodel.intercept_
-    z_dict[model_name + "_threshold"] = get_cutoff(roc_path, 0.95)
+        z_dict[model_name + "_threshold"] = get_cutoff(roc_path, 0.98)
     z_dict[model_name + "_pseudocount"] = 1e-06
 
     #for i in ["_bias", "_threshold", "_pseudocount"]:

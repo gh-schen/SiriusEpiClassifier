@@ -64,4 +64,4 @@ class predOutcome():
         self.true_y = None
         self.test_y = None
         self.train_ys = [] # with CV training can have multiple results
-        self.cancer_status = None # binary: 0 for normal and 1 for cance
+        self.cancer_status = None # binary: 0 for normal and 1 for cancer

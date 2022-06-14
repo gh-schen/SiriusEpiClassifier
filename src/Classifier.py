@@ -5,6 +5,7 @@ from statistics import median, mean
 from numpy import log, log10, concatenate
 from sklearn import linear_model, preprocessing, metrics, decomposition
 from scipy.special import logit, expit
+from scipy.stats import binom
 from copy import deepcopy
 
 import logging
@@ -21,6 +22,10 @@ class regData():
         # params
         self.min_maf_ = 1e-06
         self.x_offset_ = 1e-06
+        self.min_omit_coef = params.min_omit_coef # if true, set to zero after normalization - coef term completely omitted
+        self.min_abs_mol_count = params.min_abs_mol_count # min absolute mol count to be counted in prediction
+        self.min_norm_mol_count = params.min_norm_mol_count # min normalized mol count to be counted in prediction
+        self.region_filter_by_pbinom = params.region_filter_by_pbinom # min mol to be counted proportional to region length
         self.num_cv_ = 4
         self.cancer_type_str_ = params.cancer_type
         self.cancer_free_str_ = "cancer_free"
@@ -39,6 +44,7 @@ class regData():
         self.follow_train_x = []
         self.follow_train_indexes = []
         self.init_train_y = []
+        #self.init_train_labels = []
         self.follow_train_labels = []
         self.test_x = []
         self.test_indexes = []
@@ -63,8 +69,20 @@ class regData():
         self.pred_map = {}
         self.roc_dataframe = None
         # result metrics
-        self.output_metrics = {"num_components": [], "num_features_after_clean_up": None}
+        self.output_metrics = {"num_components": [], "num_features_after_clean_up": None, "region_filtered(min, max, mean)": []}
         
+
+    def _get_region_lengths(self, region_list):
+        d_thred = DataFrame(columns=["region_id", "length"])
+        for k in region_list:
+            if k == "ctrl_sum":
+                d_thred.loc[d_thred.shape[0], :] = [k, 11000]
+            else:
+                ks = k.split('_')
+                klen = int(ks[2]) - int(ks[1])
+                d_thred.loc[d_thred.shape[0], :] = [k, klen]
+        return d_thred
+
 
     def _set_split_data(self, rawdata, regions, num_partitions, maf_exist):
         pnum = round(rawdata.shape[0] / num_partitions) + 1
@@ -73,14 +91,55 @@ class regData():
                 return
             raise Exception("Empty input data in classifier.")
 
+        trim_x = rawdata[regions + [self.ctrl_key_]].copy()
+        trim_replace_index = None
+        if not self.region_filter_by_pbinom: # use absolute cutoff for mol and norm
+            trim_replace_index = trim_x[trim_x < self.min_abs_mol_count] | trim_x[trim_x < self.min_norm_mol_count]
+            trim_x[trim_x < self.min_abs_mol_count] = 0
+            trim_x[trim_x < self.min_norm_mol_count] = 0
+        else: # use length based pbinom
+            rcounts = []
+            region_lens = self._get_region_lengths(trim_x.columns)
+            for idx, dr in trim_x.iterrows():
+                ctrl_sum = dr[self.ctrl_key_]
+                d_tmp = dr.to_frame()
+                d_tmp.columns = [idx]
+                d_tmp["region_id"] = trim_x.columns
+                d_tmp = region_lens.merge(d_tmp, how="left", on="region_id")
+                d_tmp["threshold"] = 1.5 / 100000000 * ctrl_sum * (d_tmp["length"] + 100)
+                d_tmp.loc[d_tmp[idx] < d_tmp["threshold"], idx] = -1
+                rcounts.append(d_tmp[d_tmp[idx] == -1].shape[0])
+                #d_tmp["base"] = ctrl_sum / 11000 * (d_tmp["length"].astype(float) + 100)
+                #d_tmp.loc[:, "base"] = d_tmp.loc[:, "base"].round(0)
+                #probs = []
+                #for x, v in d_tmp.iterrows():
+                #    pv = binom.cdf(k=v[idx], n=v["base"], p=5e-05)
+                #    probs.append(pv)
+                #d_tmp["prob"] = probs
+                #d_tmp.loc[d_tmp["prob"] < 0.95, idx] = -1
+                #rcounts.append(d_tmp[d_tmp["prob"] < 0.95].shape[0])
+                trim_x.loc[idx, :] = d_tmp[idx].to_list()
+            trim_replace_index = trim_x[trim_x == -1]
+            trim_x[trim_x == -1] = 0
+            self.output_metrics["region_filtered(min, max, mean)"] = [min(rcounts), max(rcounts),
+                                                                      round(sum(rcounts) / len(rcounts))]
+
+        trim_x = trim_x[regions].div(trim_x[self.ctrl_key_].values, axis=0)
+        trim_x = log10(trim_x.astype('float') + self.x_offset_)
+        if self.min_omit_coef:
+            trim_x[trim_replace_index] = 0
+
         new_x = rawdata[regions].div(rawdata[self.ctrl_key_].values, axis=0)
         new_x = log10(new_x.astype('float') + self.x_offset_)
+
+        y_labels = rawdata[self.label_key_]
+        y_labels = y_labels.replace(self.cancer_type_str_, 1)
+        y_labels = y_labels.replace(self.cancer_free_str_, 0)
         if self.is_binary_classifier_:
-            new_y = rawdata[self.label_key_]
-            new_y = new_y.replace(self.cancer_type_str_, 1)
-            new_y = new_y.replace(self.cancer_free_str_, 0)
+            new_y = y_labels
         else:
             new_y = logit(rawdata[self.maf_key_].fillna(self.min_maf_))
+        #logging.info("Input data transformation finished.")
 
         pstart = 0
         pindex = 0
@@ -92,14 +151,16 @@ class regData():
             if self.num_cv_ == 1:
                 train_locs = test_locs
             x_train = new_x.iloc[train_locs]
-            x_test = new_x.iloc[test_locs]
+            x_test = trim_x.iloc[test_locs]
             y_train = new_y.iloc[train_locs]
+            label_train = y_labels.iloc[train_locs]
             y_test = new_y.iloc[test_locs]
             if maf_exist: # initial train/test
                 if len(self.init_train_x) <= pindex: # this partition has no data yest
                     self.init_train_x.append(x_train)
                     self.init_indexes.append(x_train.index.to_list())
                     self.init_train_y.append(y_train)
+                    #self.init_train_labels.append(label_train)
                     self.test_x.append(x_test)
                     self.test_indexes.append(x_test.index.to_list())
                     self.test_y.append(y_test)
